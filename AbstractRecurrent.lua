@@ -107,6 +107,9 @@ function AbstractRecurrent:forget()
       self.gradInputs = {}
       self.sharedClones = _.compact(self.sharedClones)
       self._gradOutputs = _.compact(self._gradOutputs)
+   else
+     self.cells = {}
+     self.gradCells = {}
    end
    
    -- forget the past inputs; restart from first step

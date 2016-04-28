@@ -4909,6 +4909,24 @@ function rnntest.SeqLSTM_issue207()
    lstm:forward(torch.Tensor(1, 20, 10))
 end
 
+function rnntest.ClearCells()
+  local seq = nn.Sequential()
+  local seqLSTM = nn.LSTM(200, 4)
+  seq:add(nn.Sequencer(seqLSTM))
+
+  for i=1,10 do
+    seq:forward({torch.Tensor(200), torch.Tensor(200), torch.Tensor(200)})
+  end
+  seq:evaluate() -- Cells are only cleared on 
+  seq:forget()
+  mytester:assert(#seqLSTM.cells == 0, 'seqLSTM.cells are not cleared on call to forget()')
+  mytester:assert(#seqLSTM.gradCells == 0, 'seqLSTM.gradCells are not cleared on call to forget()')
+
+  seqLSTM:forget()
+  mytester:assert(#seqLSTM.cells == 0, 'seqLSTM.cells are not cleared on call to forget()')
+  mytester:assert(#seqLSTM.gradCells == 0, 'seqLSTM.gradCells are not cleared on call to forget()')
+end
+
 function rnn.test(tests, benchmark_)
    mytester = torch.Tester()
    benchmark = benchmark_
