@@ -24,8 +24,8 @@ enc:add(encLSTM)
 -- Decoder
 local dec = nn.Sequential()
 local dec_lookup = nn.ParallelTable()
-dec_lookup:add(nn.Identity()) -- To pass along c0
-dec_lookup:add(nn.Identity()) -- To pass along h0
+dec_lookup:add(nn.Select(1, -1)) -- To pass along c0
+dec_lookup:add(nn.Select(1, -1)) -- To pass along h0
 dec_lookup:add(nn.LookupTable(opt.vocabSize, opt.hiddenSize))
 local decLSTM = nn.SeqLSTM(opt.hiddenSize, opt.hiddenSize)
 dec:add(dec_lookup)
@@ -53,19 +53,21 @@ for i=1,opt.niter do
 
    -- Forward pass
    local encOut = enc:forward(encInSeq)
-   local decInput = {encLSTM.cell:select(1, encLSTM.cell:size(1)), encOut:select(1, encOut:size(1)), decInSeq}
+   local decInput = {encLSTM.cell, encOut, decInSeq}
+  --  print(encOut)
+  --  print(nn.Select(1, -1):forward(encLSTM.cell))
+  --  print(nn.Select(1, -1):forward(encOut))
    local decOut = dec:forward(decInput)
+  --  print(decOut)
    local err = criterion:forward(decOut, decOutSeq)
    
    print(string.format("Iteration %d ; NLL err = %f ", i, err))
    
    -- Backward pass
    local gradOutput = criterion:backward(decOut, decOutSeq)
-   local dc0, dh0, _ = unpack(dec:backward(decInput, gradOutput))
+   local grad_c0, grad_h0, _ = unpack(dec:backward(decInput, gradOutput))
    local zeroTensor = torch.Tensor(encOut):zero()
-   -- TODO: dc0 where to input this?
-   zeroTensor[zeroTensor:size(1)] = dh0 -- Copy gradient to encoder
-   enc:backward(encInSeq, zeroTensor)
+   enc:backward(encInSeq, {grad_c0:select(1, grad_h0:size(1)), grad_h0:select(1, grad_h0:size(1)), zeroTensor})
 
    dec:updateParameters(opt.learningRate)
    enc:updateParameters(opt.learningRate)

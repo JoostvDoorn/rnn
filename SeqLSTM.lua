@@ -112,9 +112,22 @@ function SeqLSTM:_prepare_size(input, gradOutput)
    end
    assert(x:dim() == 3, "Only supports batch mode")
    
+   local grad_h, grad_next_c, grad_next_h
+   if gradOutput then
+     if torch.type(gradOutput) == 'table' and #gradOutput == 3 then
+        grad_next_c, grad_next_h, grad_h = unpack(gradOutput)
+     elseif torch.type(gradOutput) == 'table' and #gradOutput == 2 then
+        grad_next_h, grad_h = unpack(gradOutput)
+     elseif torch.isTensor(gradOutput) then
+        grad_h = gradOutput
+     else
+        assert(false, 'invalid gradOutput')
+     end
+   end
+   
    if self.batchfirst then
       x = x:transpose(1,2)
-      gradOutput = gradOutput and gradOutput:transpose(1,2) or nil
+      grad_h = grad_h and grad_h:transpose(1,2) or nil
    end
    
    local T, N = x:size(1), x:size(2)
@@ -127,10 +140,16 @@ function SeqLSTM:_prepare_size(input, gradOutput)
    if c0 then
       check_dims(c0, {N, H})
    end
-   if gradOutput then
-      check_dims(gradOutput, {T, N, H})
+   if grad_h then
+      check_dims(grad_h, {T, N, H})
    end
-   return c0, h0, x, gradOutput
+   if grad_next_h then
+      check_dims(grad_next_h, {N, H})
+   end
+   if grad_next_c then
+      check_dims(grad_next_c, {N, H})
+   end
+   return c0, h0, x, grad_next_c, grad_next_h, grad_h
 end
 
 --[[
@@ -145,6 +164,7 @@ Output:
 
 function SeqLSTM:updateOutput(input)
    self.recompute_backward = true
+   
    local c0, h0, x = self:_prepare_size(input)
    local N, T = x:size(2), x:size(1)
    local D, H = self.inputsize, self.outputsize
@@ -232,7 +252,7 @@ function SeqLSTM:backward(input, gradOutput, scale)
    scale = scale or 1.0
    assert(scale == 1.0, 'must have scale=1')
    
-   local c0, h0, x, grad_h = self:_prepare_size(input, gradOutput)
+   local c0, h0, x, grad_next_c, grad_next_h, grad_h = self:_prepare_size(input, gradOutput)
    assert(grad_h, "Expecting gradOutput")
    local N, T = x:size(2), x:size(1)
    local D, H = self.inputsize, self.outputsize
@@ -254,8 +274,10 @@ function SeqLSTM:backward(input, gradOutput, scale)
    grad_h0:resizeAs(h0):zero()
    grad_c0:resizeAs(c0):zero()
    grad_x:resizeAs(x):zero()
-   local grad_next_h = self.buffer1:resizeAs(h0):zero()
-   local grad_next_c = self.buffer2:resizeAs(c0):zero()
+   self.buffer1:resizeAs(h0)
+   self.buffer2:resizeAs(c0)
+   grad_next_h = grad_next_h and self.buffer1:copy(grad_next_h) or self.buffer1:zero()
+   grad_next_c = grad_next_c and self.buffer2:copy(grad_next_c) or self.buffer2:zero()
    for t = T, 1, -1 do
       local next_h, next_c = h[t], c[t]
       local prev_h, prev_c = nil, nil
@@ -324,7 +346,7 @@ function SeqLSTM:backward(input, gradOutput, scale)
    else
       self.gradInput = self.grad_x
    end
-
+   
    return self.gradInput
 end
 
